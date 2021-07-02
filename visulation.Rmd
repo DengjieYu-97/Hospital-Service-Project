@@ -1,0 +1,20 @@
+---
+title: "Untitled"
+author: "Dengjie Yu"
+date: "2021/6/30"
+output: html_document
+---
+
+```{r}
+treatment=read.csv("treatment.csv",stringsAsFactors = TRUE)
+```
+
+```{r}
+hist(treatment$AverageLengthOfEpisode,breaks = 50,main="Histogram of AverageLengthOfEpisode",xlab="")
+hist(log(treatment$AverageLengthOfEpisode+1),main="Histogram of log(AverageLengthOfEpisode+1)",breaks = 50,xlab="")
+```
+
+```{r}
+hist(treatment$Location,breaks = 50)
+```
+

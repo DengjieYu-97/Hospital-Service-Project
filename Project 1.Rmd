@@ -1,0 +1,294 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r,message=FALSE,warning=FALSE}
+library(lme4)
+library(tidyverse)
+library(data.table)
+library(MASS)
+library(lattice)
+library("nlme")
+library(corrplot)
+#Read the data-sets
+data=read.csv("Processed_data.csv",stringsAsFactors = TRUE) 
+```
+
+
+
+```{r}
+#Check the potential response variables, see the proportion of zero values.
+sum(data[,'Episodes']==0)/dim(data)[1]*100
+sum(data[,'LengthOfEpisode']==0)/dim(data)[1]*100
+sum(data[,'AverageLengthOfEpisode']==0)/dim(data)[1]*100
+sum(data[,'Stays']==0)/dim(data)[1]*100
+sum(data[,'LengthOfStay']==0)/dim(data)[1]*100
+sum(data[,'AverageLengthOfStay']==0)/dim(data)[1]*100
+```
+```{r}
+cor_data<-subset(data,select=c(Episodes,LengthOfEpisode,AverageLengthOfEpisode,Stays,LengthOfStay,AverageLengthOfStay))
+cor_response<-cor_data %>% cor(use="pairwise.complete")
+corrplot(cor_response,
+         diag = FALSE,
+         title="Corrlation Matrix",
+         type='upper'
+         )
+```
+
+
+AverageLengthOfEpisode
+```{r}
+#Exclude the response variabels that not needed.
+reg_data <- subset(data,select=-c(Episodes,LengthOfEpisode,Stays,LengthOfStay,AverageLengthOfStay))
+#Make some variable as factor.
+column_name<-names(reg_data)
+n=dim(reg_data)[2]
+l=dim(reg_data)[1]
+Columns_keep=c()
+for (i in 1:n){
+  prop<-sum(reg_data[,i]==0)/l
+  if(prop>0.6){
+    C=reg_data[,i]
+    reg_data[C!=0,i]=1
+    reg_data[,i]=as.factor(reg_data[,i])
+  }
+  if(prop<0.8){
+    Columns_keep<-c(Columns_keep,column_name[i])
+  }
+}
+reg_data<-subset(reg_data,select=Columns_keep)
+#Center and Scale the Dataset
+num_col<-sapply(reg_data,is.numeric)
+reg_data[,num_col]<-scale(reg_data[,num_col],center = TRUE,scale=TRUE)
+reg_data[,'Age']<-data[,'Age']
+reg_data[,'Year']<-data[,'Year']
+reg_data[,'AverageLengthOfEpisode']<-data[,'AverageLengthOfEpisode']
+```
+
+
+Regression Part
+
+
+```{r}
+#See the distribution of response variable and after taking the logarithm.
+with(reg_data,hist(AverageLengthOfEpisode),breaks = 50)
+with(reg_data,hist(log(AverageLengthOfEpisode+1),breaks = 50))
+```
+
+```{r}
+plot(data$AverageLengthOfEpisode~data$Location)
+plot(log(data$AverageLengthOfEpisode+1)~data$AdmissionType)
+```
+
+
+```{r}
+#Drop the samples that have 0 values in response variable.
+non_zero_data=reg_data[!reg_data$AverageLengthOfEpisode==0,]
+```
+
+```{r}
+#See the dsitribution 
+with(non_zero_data,hist(AverageLengthOfEpisode,breaks = 50))
+with(non_zero_data,hist(log(AverageLengthOfEpisode),breaks = 50))
+```
+
+
+```{r}
+#Stepwise selection
+full_model<-lm(log(AverageLengthOfEpisode) ~.,data=non_zero_data)
+sel.back<-stepAIC(full_model,direction="back")
+summary(sel.back)
+```
+
+Check Random Effects
+
+```{r}
+#Check random effect via packages
+xyplot(log(AverageLengthOfEpisode)~Age|Location, data=non_zero_data, panel=function(x,y) {
+panel.xyplot(x,y)
+panel.lmline(x,y, lty=2)
+panel.loess(x,y,span=2)}
+)
+```
+
+
+```{r}
+dist.lmlist <- lmList(log(AverageLengthOfEpisode)~Age|Location, data=non_zero_data)
+plot(intervals(dist.lmlist))
+```
+
+```{r}
+dist.lmlist <- lmList(log(AverageLengthOfEpisode)~Sex|Location, data=non_zero_data)
+plot(intervals(dist.lmlist))
+```
+
+
+Setting Location as Random Effect
+
+
+```{r}
+#The fisrt linear mixed-effect model
+lme.intercept <- lme(log(AverageLengthOfEpisode) ~ AdmissionType + 
+    Sex + Age + SIMD_5 + SIMD_4 + SIMD_3 + SIMD_1 + Cardiology + 
+    Respiratory.Medicine + General.Surgery + Ear..Nose...Throat..ENT. + 
+    Ophthalmology + Trauma.and.Orthopaedic.Surgery + Plastic.Surgery + 
+    Urology + General.Medicine + Infectious.Diseases + Dermatology + 
+    Endocrinology...Diabetes + Gastroenterology + Geriatric.Medicine + 
+    Medical.Oncology + Renal.Medicine + Rehabilitation.Medicine + 
+    Rheumatology + Anaesthetics + Clinical.Oncology + Haematology + 
+    Neurology + Palliative.Medicine + Neurosurgery + Year + Quarters,random= ~1|Location, data = non_zero_data)
+#Compare this model with Backward selection
+anova(lme.intercept,sel.back)
+```
+
+
+```{r}
+lme.slope <-lme(log(AverageLengthOfEpisode) ~ AdmissionType + 
+    Sex + Age + SIMD_5 + SIMD_4 + SIMD_3 + SIMD_1 + Cardiology + 
+    Respiratory.Medicine + General.Surgery + Ear..Nose...Throat..ENT. + 
+    Ophthalmology + Trauma.and.Orthopaedic.Surgery + Plastic.Surgery + 
+    Urology + General.Medicine + Infectious.Diseases + Dermatology + 
+    Endocrinology...Diabetes + Gastroenterology + Geriatric.Medicine + 
+    Medical.Oncology + Renal.Medicine + Rehabilitation.Medicine + 
+    Rheumatology + Anaesthetics + Clinical.Oncology + Haematology + 
+    Neurology + Palliative.Medicine + Neurosurgery + Year + Quarters,random =~Age|Location, data = non_zero_data)
+
+```
+
+```{r}
+anova(lme.slope,lme.intercept)
+anova(lme.slope,sel.back)
+```
+
+```{r}
+lme.slope3 <-lme(log(AverageLengthOfEpisode) ~ AdmissionType + 
+    Sex + Age + SIMD_5 + SIMD_4 + SIMD_3 + SIMD_1 + Cardiology + 
+    Respiratory.Medicine + General.Surgery + Ear..Nose...Throat..ENT. + 
+    Ophthalmology + Trauma.and.Orthopaedic.Surgery + Plastic.Surgery + 
+    Urology + General.Medicine + Infectious.Diseases + Dermatology + 
+    Endocrinology...Diabetes + Gastroenterology + Geriatric.Medicine + 
+    Medical.Oncology + Renal.Medicine + Rehabilitation.Medicine + 
+    Rheumatology + Anaesthetics + Clinical.Oncology + Haematology + 
+    Neurology + Palliative.Medicine + Neurosurgery + Year + Quarters,random=~Age+Sex|Location, data = non_zero_data)
+```
+
+
+
+```{r}
+anova(lme.slope,lme.slope3)
+```
+
+```{r}
+lme.slope2 <-lme(log(AverageLengthOfEpisode) ~ AdmissionType + 
+    Sex + Age + SIMD_5 + SIMD_4 + SIMD_3 + SIMD_1 + Cardiology + 
+    Respiratory.Medicine + General.Surgery + Ear..Nose...Throat..ENT. + 
+    Ophthalmology + Trauma.and.Orthopaedic.Surgery + Plastic.Surgery + 
+    Urology + General.Medicine + Infectious.Diseases + Dermatology + 
+    Endocrinology...Diabetes + Gastroenterology + Geriatric.Medicine + 
+    Medical.Oncology + Renal.Medicine + Rehabilitation.Medicine + 
+    Rheumatology + Anaesthetics + Clinical.Oncology + Haematology + 
+    Neurology + Palliative.Medicine + Neurosurgery + Year + Quarters,random=~Sex|Location, data = non_zero_data)
+
+anova(lme.slope2,lme.slope)
+```
+```{r}
+summary(lme.slope3)
+```
+
+```{r}
+ranef(lme.slope3)
+```
+
+```{r}
+predict(lme.slope3,re.form=~0)[1]
+```
+
+Diagnositcs
+
+```{r}
+qqnorm(residuals(lme.slope3),main="")
+plot(fitted(lme.slope3),residuals(lme.slope3),xlab="Fitted",ylab = "Residuals")
+abline(h=0)
+```
+
+Now let's see what causes average length of episodes as 0
+
+```{r}
+n=dim(reg_data)[1]
+Aim=c()
+for (i in 1:n){
+  value=reg_data$AverageLengthOfEpisode[i]
+  if (value ==0){
+    Aim=c(Aim,0)
+  }else{
+    Aim=c(Aim,1)
+  }
+}
+```
+
+
+```{r}
+library(randomForest)
+library(pROC)
+```
+
+```{r}
+fac_data=reg_data
+fac_data[,'AverageLengthOfEpisode']=as.factor(Aim)
+```
+
+
+```{r}
+train_sub = sample(nrow(fac_data),7/10*nrow(fac_data))
+train_data = fac_data[train_sub,]
+test_data = fac_data[-train_sub,]
+randomforest_model <- randomForest(AverageLengthOfEpisode ~ Location+AdmissionType+Sex+Age+Year+Quarters+SIMD_5 + SIMD_4 + SIMD_3 +SIMD_2+SIMD_1,data = train_data,ntree =500,mtry=4,importance=TRUE)
+```
+
+
+
+```{r}
+randomforest_model$importance
+varImpPlot(randomforest_model, main = "variable importance")
+```
+```{r}
+#Using Training data-set to Predict
+pre_ran <- predict(randomforest_model,newdata=test_data)
+#Merge the real value with my rediction
+obs_p_ran = data.frame(prob=pre_ran,obs=test_data$AverageLengthOfEpisode)
+#Output the confusion matrix
+table(test_data$AverageLengthOfEpisode,pre_ran,dnn=c("True","Predict"))
+#ROC curve.
+ran_roc <- roc(test_data$AverageLengthOfEpisode,as.numeric(pre_ran))
+plot(ran_roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),grid.col=c("green", "red"), max.auc.polygon=TRUE,auc.polygon.col="skyblue", print.thres=TRUE,main='ROC curve,mtry=4,ntree=500')
+
+```
+
+```{r}
+n=dim(data)[1]
+Aim=c()
+for (i in 1:n){
+  value=data$AverageLengthOfEpisode[i]
+  if (value ==0){
+    Aim=c(Aim,0)
+  }else{
+    Aim=c(Aim,1)
+  }
+}
+```
+
+```{r}
+
+data2=data.table(data)
+data2[,'AverageLengthOfEpisode']=as.factor(Aim)
+data2=data.table(data2)
+data2 %>% group_by(AdmissionType,AverageLengthOfEpisode)%>% summarize(count=n())
+```
+
+```{r}
+data2 %>% group_by(Location,AverageLengthOfEpisode)%>% summarize(count=n())
+```
+
